@@ -157,7 +157,7 @@ function App() {
       try {
         data = JSON.parse(rawText);
       } catch {
-        data = { error: 'HF Space trả về response không hợp lệ, thử lại sau.' };
+        data = { error: rawText.slice(0, 300) };
       }
 
       const assistantMessage: Message = {
