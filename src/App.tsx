@@ -34,7 +34,6 @@ function App() {
     scrollToBottom();
   }, [currentSession?.messages]);
 
-  // Load sessions from localStorage
   useEffect(() => {
     const saved = localStorage.getItem('ai-coder-sessions');
     if (saved) {
@@ -49,16 +48,13 @@ function App() {
           })),
         }));
         setSessions(restored);
-        if (restored.length > 0) {
-          setCurrentSessionId(restored[0].id);
-        }
+        if (restored.length > 0) setCurrentSessionId(restored[0].id);
       } catch (e) {
         console.error('Failed to load sessions:', e);
       }
     }
   }, []);
 
-  // Save sessions to localStorage
   useEffect(() => {
     if (sessions.length > 0) {
       localStorage.setItem('ai-coder-sessions', JSON.stringify(sessions));
@@ -136,7 +132,6 @@ function App() {
     setIsLoading(true);
 
     try {
-      // Build history từ messages hiện có (không gồm message vừa gửi)
       const history = existingMessages.map(m => ({
         role: m.role,
         content: m.content,
@@ -152,27 +147,59 @@ function App() {
         }),
       });
 
-      let data: { response?: string; error?: string };
-      const rawText = await response.text();
-      try {
-        data = JSON.parse(rawText);
-      } catch {
-        data = { error: rawText.slice(0, 300) };
-      }
-
-      const assistantMessage: Message = {
-        id: generateId(),
-        role: 'assistant',
-        content: data.response || `Lỗi: ${data.error || 'Không thể kết nối đến AI'}`,
-        timestamp: new Date(),
-      };
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let assistantContent = '';
+      const assistantId = generateId();
 
       setSessions(prev => prev.map(s => {
         if (s.id === sessionId) {
-          return { ...s, messages: [...s.messages, assistantMessage] };
+          return {
+            ...s,
+            messages: [...s.messages, {
+              id: assistantId,
+              role: 'assistant' as const,
+              content: '',
+              timestamp: new Date(),
+            }],
+          };
         }
         return s;
       }));
+
+      setIsLoading(false);
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const text = decoder.decode(value);
+        const lines = text.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+            try {
+              const data = JSON.parse(line.slice(6));
+              assistantContent += data.delta;
+
+              setSessions(prev => prev.map(s => {
+                if (s.id === sessionId) {
+                  return {
+                    ...s,
+                    messages: s.messages.map(m =>
+                      m.id === assistantId
+                        ? { ...m, content: assistantContent }
+                        : m
+                    ),
+                  };
+                }
+                return s;
+              }));
+            } catch {}
+          }
+        }
+      }
+
     } catch (error) {
       const errorMessage: Message = {
         id: generateId(),
@@ -180,7 +207,6 @@ function App() {
         content: `Lỗi kết nối: ${error instanceof Error ? error.message : 'Lỗi không xác định'}`,
         timestamp: new Date(),
       };
-
       setSessions(prev => prev.map(s => {
         if (s.id === sessionId) {
           return { ...s, messages: [...s.messages, errorMessage] };
@@ -194,7 +220,6 @@ function App() {
 
   return (
     <div className="h-screen flex bg-slate-900">
-      {/* Sidebar */}
       <div className="w-72 bg-slate-950 border-r border-slate-700 flex flex-col">
         <div className="p-4 border-b border-slate-700">
           <button
@@ -252,7 +277,6 @@ function App() {
         </div>
       </div>
 
-      {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">
         <header className="border-b border-slate-700 bg-slate-900/50 backdrop-blur-sm">
           <div className="px-6 py-4 flex items-center gap-3">
@@ -303,7 +327,12 @@ function App() {
                       ? 'bg-emerald-600 text-white'
                       : 'bg-slate-800 text-slate-100 border border-slate-700'
                   }`}>
-                    <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                    <p className="whitespace-pre-wrap leading-relaxed">
+                      {msg.content}
+                      {msg.role === 'assistant' && msg.content === '' && (
+                        <span className="inline-block w-2 h-4 bg-emerald-400 animate-pulse ml-1" />
+                      )}
+                    </p>
                     <p className={`text-xs mt-2 ${msg.role === 'user' ? 'text-emerald-200' : 'text-slate-500'}`}>
                       {msg.timestamp.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
                     </p>
