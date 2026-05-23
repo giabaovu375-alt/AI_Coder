@@ -8,7 +8,7 @@ const corsHeaders = {
 
 const SPACE_URL = "https://toilatop1sever-ai-coder.hf.space/chat";
 const MAX_PROMPT_LENGTH = 4000;
-const TIMEOUT_MS = 30000;
+const TIMEOUT_MS = 120000; // 2 phút chờ HF Space warm up
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -23,10 +23,21 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const body = await req.json();
-    const { prompt, history = [], system_prompt } = body;
+    // Safe parse request body
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json();
+    } catch {
+      return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
-    // Validate prompt
+    const prompt = typeof body.prompt === "string" ? body.prompt : "";
+    const history = Array.isArray(body.history) ? body.history : [];
+    const system_prompt = typeof body.system_prompt === "string" ? body.system_prompt : undefined;
+
     if (!prompt || prompt.trim().length === 0) {
       return new Response(JSON.stringify({ error: "Prompt is empty" }), {
         status: 400,
@@ -41,21 +52,19 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Validate history format
-    const validHistory = Array.isArray(history)
-      ? history.filter(
-          (msg: unknown) =>
-            typeof msg === "object" &&
-            msg !== null &&
-            "role" in msg &&
-            "content" in msg &&
-            (msg.role === "user" || msg.role === "assistant")
-        )
-      : [];
+    const validHistory = history.filter(
+      (msg: unknown) =>
+        typeof msg === "object" &&
+        msg !== null &&
+        "role" in msg &&
+        "content" in msg &&
+        ((msg as Record<string, unknown>).role === "user" ||
+          (msg as Record<string, unknown>).role === "assistant") &&
+        typeof (msg as Record<string, unknown>).content === "string"
+    );
 
     const hfToken = Deno.env.get("HF_TOKEN");
 
-    // Timeout controller
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -76,7 +85,7 @@ Deno.serve(async (req: Request) => {
       });
     } catch (fetchError) {
       if (fetchError instanceof Error && fetchError.name === "AbortError") {
-        return new Response(JSON.stringify({ error: "Request timeout (30s). HF Space may be sleeping, try again." }), {
+        return new Response(JSON.stringify({ error: "HF Space đang khởi động, thử lại sau 30s" }), {
           status: 504,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -97,18 +106,32 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const data = await response.json();
+    // Safe parse response JSON
+    const rawText = await response.text();
+    let data: { response?: unknown };
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      return new Response(
+        JSON.stringify({ error: "HF Space trả về response không hợp lệ, thử lại sau." }),
+        {
+          status: 502,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
 
-    // Build updated history để trả về frontend
+    const aiResponse = typeof data.response === "string" ? data.response : "";
+
     const updatedHistory = [
       ...validHistory,
       { role: "user", content: prompt.trim() },
-      { role: "assistant", content: data.response ?? "" },
+      { role: "assistant", content: aiResponse },
     ];
 
     return new Response(
       JSON.stringify({
-        response: data.response ?? "",
+        response: aiResponse,
         history: updatedHistory,
       }),
       {
