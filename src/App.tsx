@@ -1,7 +1,8 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Bot, User, Loader2, Plus, Trash2, MessageSquare } from 'lucide-react';
 
 const HF_SPACE_URL = 'https://toilatop1sever-ai-coder.hf.space/chat';
+const MAX_MESSAGES = 100;
 
 interface Message {
   id: string;
@@ -23,6 +24,11 @@ function App() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const sessionsRef = useRef(sessions);
+
+  useEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
 
   const currentSession = sessions.find(s => s.id === currentSessionId);
 
@@ -63,7 +69,7 @@ function App() {
     }
   }, [sessions]);
 
-  const generateId = () => Math.random().toString(36).substring(2, 15);
+  const generateId = () => crypto.randomUUID();
 
   const createNewSession = () => {
     const newSession: ChatSession = {
@@ -87,12 +93,11 @@ function App() {
     });
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
 
     let sessionId = currentSessionId;
-    let existingMessages: Message[] = [];
 
     if (!sessionId) {
       const newSession: ChatSession = {
@@ -104,9 +109,10 @@ function App() {
       setSessions(prev => [newSession, ...prev]);
       sessionId = newSession.id;
       setCurrentSessionId(sessionId);
-    } else {
-      existingMessages = sessions.find(s => s.id === sessionId)?.messages || [];
     }
+
+    // Dùng ref để lấy messages mới nhất
+    const existingMessages = sessionsRef.current.find(s => s.id === sessionId)?.messages || [];
 
     const userMessage: Message = {
       id: generateId(),
@@ -117,9 +123,10 @@ function App() {
 
     setSessions(prev => prev.map(s => {
       if (s.id === sessionId) {
+        const updatedMessages = [...s.messages, userMessage].slice(-MAX_MESSAGES);
         return {
           ...s,
-          messages: [...s.messages, userMessage],
+          messages: updatedMessages,
           title: s.messages.length === 0
             ? input.trim().substring(0, 30) + (input.length > 30 ? '...' : '')
             : s.title,
@@ -147,9 +154,19 @@ function App() {
         }),
       });
 
-      const reader = response.body!.getReader();
+      // Check response.ok
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      if (!response.body) {
+        throw new Error('Stream unavailable');
+      }
+
+      const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let assistantContent = '';
+      let buffer = '';
       const assistantId = generateId();
 
       setSessions(prev => prev.map(s => {
@@ -169,36 +186,59 @@ function App() {
 
       setIsLoading(false);
 
+      // Gom update mỗi animation frame tránh lag
+      let rafPending = false;
+      const flushUpdate = (content: string) => {
+        if (rafPending) return;
+        rafPending = true;
+        requestAnimationFrame(() => {
+          rafPending = false;
+          setSessions(prev => prev.map(s => {
+            if (s.id === sessionId) {
+              return {
+                ...s,
+                messages: s.messages.map(m =>
+                  m.id === assistantId ? { ...m, content } : m
+                ),
+              };
+            }
+            return s;
+          }));
+        });
+      };
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const text = decoder.decode(value);
-        const lines = text.split('\n');
+        // Buffer để tránh JSON bị cắt đôi
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n');
+        buffer = parts.pop() || '';
 
-        for (const line of lines) {
+        for (const line of parts) {
           if (line.startsWith('data: ') && line !== 'data: [DONE]') {
             try {
               const data = JSON.parse(line.slice(6));
               assistantContent += data.delta;
-
-              setSessions(prev => prev.map(s => {
-                if (s.id === sessionId) {
-                  return {
-                    ...s,
-                    messages: s.messages.map(m =>
-                      m.id === assistantId
-                        ? { ...m, content: assistantContent }
-                        : m
-                    ),
-                  };
-                }
-                return s;
-              }));
+              flushUpdate(assistantContent);
             } catch {}
           }
         }
       }
+
+      // Final update đảm bảo content đầy đủ
+      setSessions(prev => prev.map(s => {
+        if (s.id === sessionId) {
+          return {
+            ...s,
+            messages: s.messages.map(m =>
+              m.id === assistantId ? { ...m, content: assistantContent } : m
+            ).slice(-MAX_MESSAGES),
+          };
+        }
+        return s;
+      }));
 
     } catch (error) {
       const errorMessage: Message = {
@@ -215,6 +255,13 @@ function App() {
       }));
     } finally {
       setIsLoading(false);
+    }
+  }, [input, isLoading, currentSessionId]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e as unknown as React.FormEvent);
     }
   };
 
@@ -368,7 +415,8 @@ function App() {
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Nhập tin nhắn của bạn..."
+                onKeyDown={handleKeyDown}
+                placeholder="Nhập tin nhắn của bạn... (Enter để gửi)"
                 className="flex-1 bg-slate-800 border border-slate-600 rounded-xl px-5 py-4 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                 disabled={isLoading}
               />
