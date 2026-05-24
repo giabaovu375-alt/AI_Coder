@@ -111,7 +111,6 @@ function App() {
       setCurrentSessionId(sessionId);
     }
 
-    // Dùng ref để lấy messages mới nhất
     const existingMessages = sessionsRef.current.find(s => s.id === sessionId)?.messages || [];
 
     const userMessage: Message = {
@@ -150,18 +149,12 @@ function App() {
         body: JSON.stringify({
           prompt: userMessage.content,
           history,
-          system_prompt: 'You are a helpful coding assistant. Answer clearly and provide code examples when needed.',
+          system_prompt: 'Bạn là một trợ lý AI thông minh, thân thiện. Hãy trả lời ngắn gọn, chính xác và dễ hiểu. Luôn trả lời bằng tiếng Việt trừ khi người dùng yêu cầu ngôn ngữ khác. Khi được hỏi về code, hãy cung cấp code hoàn chỉnh, có chú thích rõ ràng và giải thích ngắn gọn. Không bịa đặt thông tin, nếu không biết hãy thành thật nói không biết.',
         }),
       });
 
-      // Check response.ok
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      if (!response.body) {
-        throw new Error('Stream unavailable');
-      }
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.body) throw new Error('Stream unavailable');
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -186,7 +179,6 @@ function App() {
 
       setIsLoading(false);
 
-      // Gom update mỗi animation frame tránh lag
       let rafPending = false;
       const flushUpdate = (content: string) => {
         if (rafPending) return;
@@ -210,12 +202,9 @@ function App() {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
-        // Buffer để tránh JSON bị cắt đôi
         buffer += decoder.decode(value, { stream: true });
         const parts = buffer.split('\n');
         buffer = parts.pop() || '';
-
         for (const line of parts) {
           if (line.startsWith('data: ') && line !== 'data: [DONE]') {
             try {
@@ -227,7 +216,6 @@ function App() {
         }
       }
 
-      // Final update đảm bảo content đầy đủ
       setSessions(prev => prev.map(s => {
         if (s.id === sessionId) {
           return {
@@ -318,7 +306,6 @@ function App() {
             </div>
             <div>
               <p className="text-white font-medium text-sm">AI Assistant</p>
-              <p className="text-slate-500 text-xs">Powered by Qwen 2.5</p>
             </div>
           </div>
         </div>
