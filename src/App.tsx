@@ -350,7 +350,7 @@ function App() {
                 <h2 className="text-3xl font-bold text-white mb-3">Xin chào! Tôi là AI Assistant</h2>
                 <p className="text-slate-400 text-lg mb-8">Tôi có thể giúp gì cho bạn hôm nay?</p>
                 <div className="grid grid-cols-2 gap-3 max-w-xl mx-auto">
-                  {['Giải thích code JavaScript', 'Viết code Python', 'Tối ưu thuật toán', 'Debug lỗi lập trình'].map((suggestion, idx) => (
+                  {['Giải thích một khái niệm', 'Viết code Python', 'Tư vấn học lập trình', 'Hỏi đáp thông thường'].map((suggestion, idx) => (
                     <button
                       key={idx}
                       onClick={() => setInput(suggestion)}
