@@ -19,17 +19,11 @@ interface ChatSession {
   createdAt: Date;
 }
 
-// Parse thinking và response
 const parseThinking = (content: string): { thinking: string; response: string } => {
   const match = content.match(/<think>([\s\S]*?)<\/think>([\s\S]*)/);
-  if (match) {
-    return { thinking: match[1].trim(), response: match[2].trim() };
-  }
-  // Đang stream chưa xong think tag
+  if (match) return { thinking: match[1].trim(), response: match[2].trim() };
   const openTag = content.indexOf('<think>');
-  if (openTag !== -1) {
-    return { thinking: content.slice(openTag + 7), response: '' };
-  }
+  if (openTag !== -1) return { thinking: content.slice(openTag + 7), response: '' };
   return { thinking: '', response: content };
 };
 
@@ -43,17 +37,11 @@ const ThinkingBlock = ({ thinking }: { thinking: string }) => {
       >
         <Brain className="w-4 h-4 text-purple-400 flex-shrink-0" />
         <span className="text-xs text-purple-300 font-medium flex-1">Quá trình suy nghĩ</span>
-        {expanded ? (
-          <ChevronUp className="w-4 h-4 text-slate-400" />
-        ) : (
-          <ChevronDown className="w-4 h-4 text-slate-400" />
-        )}
+        {expanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
       </button>
       {expanded && (
         <div className="px-4 py-3 bg-slate-800/50 border-t border-slate-600">
-          <p className="text-xs text-slate-400 whitespace-pre-wrap leading-relaxed font-mono">
-            {thinking}
-          </p>
+          <p className="text-xs text-slate-400 whitespace-pre-wrap leading-relaxed font-mono">{thinking}</p>
         </div>
       )}
     </div>
@@ -69,18 +57,12 @@ function App() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sessionsRef = useRef(sessions);
 
-  useEffect(() => {
-    sessionsRef.current = sessions;
-  }, [sessions]);
+  useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
 
   const currentSession = sessions.find(s => s.id === currentSessionId);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
   useEffect(() => {
-    scrollToBottom();
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [currentSession?.messages]);
 
   useEffect(() => {
@@ -91,16 +73,11 @@ function App() {
         const restored = parsed.map((s: ChatSession) => ({
           ...s,
           createdAt: new Date(s.createdAt),
-          messages: s.messages.map((m: Message) => ({
-            ...m,
-            timestamp: new Date(m.timestamp),
-          })),
+          messages: s.messages.map((m: Message) => ({ ...m, timestamp: new Date(m.timestamp) })),
         }));
         setSessions(restored);
         if (restored.length > 0) setCurrentSessionId(restored[0].id);
-      } catch (e) {
-        console.error('Failed to load sessions:', e);
-      }
+      } catch (e) { console.error(e); }
     }
   }, []);
 
@@ -182,10 +159,7 @@ function App() {
     setIsLoading(true);
 
     try {
-      const history = [
-        ...existingMessages,
-        userMessage
-      ].map(({ role, content }) => ({ role, content }));
+      const history = [...existingMessages, userMessage].map(({ role, content }) => ({ role, content }));
 
       const response = await fetch(HF_SPACE_URL, {
         method: 'POST',
@@ -234,9 +208,7 @@ function App() {
               return {
                 ...s,
                 messages: s.messages.map(m =>
-                  m.id === assistantId
-                    ? { ...m, content: resp, thinking }
-                    : m
+                  m.id === assistantId ? { ...m, content: resp, thinking } : m
                 ),
               };
             }
@@ -250,28 +222,21 @@ function App() {
         if (done) {
           buffer += decoder.decode();
           if (buffer.trim()) {
-            const parts = buffer.split('\n');
-            for (const line of parts) {
+            for (const line of buffer.split('\n')) {
               if (line.startsWith('data: ') && line !== 'data: [DONE]') {
-                try {
-                  const data = JSON.parse(line.slice(6));
-                  rawContent += data.delta || '';
-                } catch {}
+                try { rawContent += JSON.parse(line.slice(6)).delta || ''; } catch {}
               }
             }
           }
           break;
         }
-
         buffer += decoder.decode(value, { stream: true });
         const parts = buffer.split('\n');
         buffer = parts.pop() || '';
-
         for (const line of parts) {
           if (line.startsWith('data: ') && line !== 'data: [DONE]') {
             try {
-              const data = JSON.parse(line.slice(6));
-              rawContent += data.delta || '';
+              rawContent += JSON.parse(line.slice(6)).delta || '';
               flushUpdate(rawContent);
             } catch {}
           }
@@ -281,15 +246,13 @@ function App() {
       flushUpdate(rawContent);
       await new Promise(r => requestAnimationFrame(r));
 
-      const { thinking: finalThinking, response: finalResponse } = parseThinking(rawContent);
+      const { thinking: ft, response: fr } = parseThinking(rawContent);
       setSessions(prev => prev.map(s => {
         if (s.id === sessionId) {
           return {
             ...s,
             messages: s.messages.map(m =>
-              m.id === assistantId
-                ? { ...m, content: finalResponse, thinking: finalThinking }
-                : m
+              m.id === assistantId ? { ...m, content: fr, thinking: ft } : m
             ).slice(-MAX_MESSAGES),
           };
         }
@@ -297,15 +260,17 @@ function App() {
       }));
 
     } catch (error) {
-      const errorMessage: Message = {
-        id: generateId(),
-        role: 'assistant',
-        content: `Lỗi kết nối: ${error instanceof Error ? error.message : 'Lỗi không xác định'}`,
-        timestamp: new Date(),
-      };
       setSessions(prev => prev.map(s => {
         if (s.id === sessionId) {
-          return { ...s, messages: [...s.messages, errorMessage] };
+          return {
+            ...s,
+            messages: [...s.messages, {
+              id: generateId(),
+              role: 'assistant' as const,
+              content: `Lỗi kết nối: ${error instanceof Error ? error.message : 'Lỗi không xác định'}`,
+              timestamp: new Date(),
+            }],
+          };
         }
         return s;
       }));
@@ -346,9 +311,7 @@ function App() {
                 key={session.id}
                 onClick={() => setCurrentSessionId(session.id)}
                 className={`group relative flex items-center gap-3 px-3 py-3 rounded-xl cursor-pointer transition-all ${
-                  currentSessionId === session.id
-                    ? 'bg-slate-800 text-white'
-                    : 'text-slate-400 hover:bg-slate-800/50'
+                  currentSessionId === session.id ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800/50'
                 }`}
               >
                 <MessageSquare className="w-5 h-5 flex-shrink-0" />
@@ -367,22 +330,7 @@ function App() {
           )}
         </div>
 
-        <div className="p-4 border-t border-slate-700 space-y-3">
-          {/* Toggle thinking */}
-          <button
-            onClick={() => setThinkingEnabled(!thinkingEnabled)}
-            className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl transition-all ${
-              thinkingEnabled
-                ? 'bg-purple-600/20 border border-purple-500/50 text-purple-300'
-                : 'bg-slate-800 border border-slate-600 text-slate-400 hover:bg-slate-700'
-            }`}
-          >
-            <Brain className="w-4 h-4" />
-            <span className="text-xs font-medium">
-              {thinkingEnabled ? 'Suy nghĩ: BẬT' : 'Suy nghĩ: TẮT'}
-            </span>
-          </button>
-
+        <div className="p-4 border-t border-slate-700">
           <div className="flex items-center gap-3 px-2">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
               <Bot className="w-6 h-6 text-white" />
@@ -440,11 +388,8 @@ function App() {
                     </div>
                   )}
                   <div className={`max-w-[85%] rounded-2xl px-5 py-4 ${
-                    msg.role === 'user'
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-slate-800 text-slate-100 border border-slate-700'
+                    msg.role === 'user' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-100 border border-slate-700'
                   }`}>
-                    {/* Thinking block */}
                     {msg.role === 'assistant' && msg.thinking && (
                       <ThinkingBlock thinking={msg.thinking} />
                     )}
@@ -500,9 +445,21 @@ function App() {
                 disabled={isLoading}
               />
               <button
+                type="button"
+                onClick={() => setThinkingEnabled(!thinkingEnabled)}
+                title={thinkingEnabled ? 'Tắt suy nghĩ' : 'Bật suy nghĩ'}
+                className={`px-4 py-4 rounded-xl transition-all ${
+                  thinkingEnabled
+                    ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/20'
+                    : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+                }`}
+              >
+                <Brain className="w-5 h-5" />
+              </button>
+              <button
                 type="submit"
                 disabled={isLoading || !input.trim()}
-                className="px-6 py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-medium rounded-xl hover:from-emerald-600 hover:to-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
+                className="px-6 py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-medium rounded-xl hover:from-emerald-600 hover:to-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
                 <Send className="w-5 h-5" />
               </button>
