@@ -107,6 +107,7 @@ function App() {
         createdAt: new Date(),
       };
       setSessions(prev => [newSession, ...prev]);
+      sessionsRef.current = [newSession, ...sessionsRef.current]; // Fix bug X
       sessionId = newSession.id;
       setCurrentSessionId(sessionId);
     }
