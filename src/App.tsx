@@ -106,8 +106,10 @@ function App() {
         messages: [],
         createdAt: new Date(),
       };
-      setSessions(prev => [newSession, ...prev]);
-      sessionsRef.current = [newSession, ...sessionsRef.current]; // Fix bug X
+      // Đồng bộ ref và state cùng lúc
+      const updatedSessions = [newSession, ...sessionsRef.current];
+      sessionsRef.current = updatedSessions;
+      setSessions(updatedSessions);
       sessionId = newSession.id;
       setCurrentSessionId(sessionId);
     }
@@ -139,10 +141,11 @@ function App() {
     setIsLoading(true);
 
     try {
-      const history = existingMessages.map(m => ({
-        role: m.role,
-        content: m.content,
-      }));
+      // History chứa cả tin nhắn mới
+      const history = [
+        ...existingMessages,
+        userMessage
+      ].map(({ role, content }) => ({ role, content }));
 
       const response = await fetch(HF_SPACE_URL, {
         method: 'POST',
@@ -178,8 +181,6 @@ function App() {
         return s;
       }));
 
-      setIsLoading(false);
-
       let rafPending = false;
       const flushUpdate = (content: string) => {
         if (rafPending) return;
@@ -202,20 +203,42 @@ function App() {
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+
+        if (done) {
+          // Xử lý buffer cuối cùng
+          buffer += decoder.decode();
+          if (buffer.trim()) {
+            const parts = buffer.split('\n');
+            for (const line of parts) {
+              if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+                try {
+                  const data = JSON.parse(line.slice(6));
+                  assistantContent += data.delta || '';
+                } catch {}
+              }
+            }
+          }
+          break;
+        }
+
         buffer += decoder.decode(value, { stream: true });
         const parts = buffer.split('\n');
         buffer = parts.pop() || '';
+
         for (const line of parts) {
           if (line.startsWith('data: ') && line !== 'data: [DONE]') {
             try {
               const data = JSON.parse(line.slice(6));
-              assistantContent += data.delta;
+              assistantContent += data.delta || '';
               flushUpdate(assistantContent);
             } catch {}
           }
         }
       }
+
+      // Đảm bảo frame cuối được render
+      flushUpdate(assistantContent);
+      await new Promise(r => requestAnimationFrame(r));
 
       setSessions(prev => prev.map(s => {
         if (s.id === sessionId) {
