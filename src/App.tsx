@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Bot, User, Loader2, Plus, Trash2, MessageSquare } from 'lucide-react';
+import { Send, Bot, User, Loader2, Plus, Trash2, MessageSquare, Brain, ChevronDown, ChevronUp } from 'lucide-react';
 
 const HF_SPACE_URL = 'https://toilatop1sever-ai-coder.hf.space/chat';
 const MAX_MESSAGES = 100;
@@ -8,6 +8,7 @@ interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  thinking?: string;
   timestamp: Date;
 }
 
@@ -18,11 +19,53 @@ interface ChatSession {
   createdAt: Date;
 }
 
+// Parse thinking và response
+const parseThinking = (content: string): { thinking: string; response: string } => {
+  const match = content.match(/<think>([\s\S]*?)<\/think>([\s\S]*)/);
+  if (match) {
+    return { thinking: match[1].trim(), response: match[2].trim() };
+  }
+  // Đang stream chưa xong think tag
+  const openTag = content.indexOf('<think>');
+  if (openTag !== -1) {
+    return { thinking: content.slice(openTag + 7), response: '' };
+  }
+  return { thinking: '', response: content };
+};
+
+const ThinkingBlock = ({ thinking }: { thinking: string }) => {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="mb-3 border border-slate-600 rounded-xl overflow-hidden">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-2 px-4 py-2 bg-slate-700/50 hover:bg-slate-700 transition-all text-left"
+      >
+        <Brain className="w-4 h-4 text-purple-400 flex-shrink-0" />
+        <span className="text-xs text-purple-300 font-medium flex-1">Quá trình suy nghĩ</span>
+        {expanded ? (
+          <ChevronUp className="w-4 h-4 text-slate-400" />
+        ) : (
+          <ChevronDown className="w-4 h-4 text-slate-400" />
+        )}
+      </button>
+      {expanded && (
+        <div className="px-4 py-3 bg-slate-800/50 border-t border-slate-600">
+          <p className="text-xs text-slate-400 whitespace-pre-wrap leading-relaxed font-mono">
+            {thinking}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
+
 function App() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [thinkingEnabled, setThinkingEnabled] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sessionsRef = useRef(sessions);
 
@@ -106,7 +149,6 @@ function App() {
         messages: [],
         createdAt: new Date(),
       };
-      // Đồng bộ ref và state cùng lúc
       const updatedSessions = [newSession, ...sessionsRef.current];
       sessionsRef.current = updatedSessions;
       setSessions(updatedSessions);
@@ -125,10 +167,9 @@ function App() {
 
     setSessions(prev => prev.map(s => {
       if (s.id === sessionId) {
-        const updatedMessages = [...s.messages, userMessage].slice(-MAX_MESSAGES);
         return {
           ...s,
-          messages: updatedMessages,
+          messages: [...s.messages, userMessage].slice(-MAX_MESSAGES),
           title: s.messages.length === 0
             ? input.trim().substring(0, 30) + (input.length > 30 ? '...' : '')
             : s.title,
@@ -141,7 +182,6 @@ function App() {
     setIsLoading(true);
 
     try {
-      // History chứa cả tin nhắn mới
       const history = [
         ...existingMessages,
         userMessage
@@ -153,7 +193,7 @@ function App() {
         body: JSON.stringify({
           prompt: userMessage.content,
           history,
-          system_prompt: 'Bạn là một trợ lý AI thông minh, thân thiện. Hãy trả lời ngắn gọn, chính xác và dễ hiểu. Luôn trả lời bằng tiếng Việt trừ khi người dùng yêu cầu ngôn ngữ khác. Khi được hỏi về code, hãy cung cấp code hoàn chỉnh, có chú thích rõ ràng và giải thích ngắn gọn. Không bịa đặt thông tin, nếu không biết hãy thành thật nói không biết.',
+          enable_thinking: thinkingEnabled,
         }),
       });
 
@@ -162,7 +202,7 @@ function App() {
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      let assistantContent = '';
+      let rawContent = '';
       let buffer = '';
       const assistantId = generateId();
 
@@ -174,6 +214,7 @@ function App() {
               id: assistantId,
               role: 'assistant' as const,
               content: '',
+              thinking: '',
               timestamp: new Date(),
             }],
           };
@@ -182,17 +223,20 @@ function App() {
       }));
 
       let rafPending = false;
-      const flushUpdate = (content: string) => {
+      const flushUpdate = (raw: string) => {
         if (rafPending) return;
         rafPending = true;
         requestAnimationFrame(() => {
           rafPending = false;
+          const { thinking, response: resp } = parseThinking(raw);
           setSessions(prev => prev.map(s => {
             if (s.id === sessionId) {
               return {
                 ...s,
                 messages: s.messages.map(m =>
-                  m.id === assistantId ? { ...m, content } : m
+                  m.id === assistantId
+                    ? { ...m, content: resp, thinking }
+                    : m
                 ),
               };
             }
@@ -203,9 +247,7 @@ function App() {
 
       while (true) {
         const { done, value } = await reader.read();
-
         if (done) {
-          // Xử lý buffer cuối cùng
           buffer += decoder.decode();
           if (buffer.trim()) {
             const parts = buffer.split('\n');
@@ -213,7 +255,7 @@ function App() {
               if (line.startsWith('data: ') && line !== 'data: [DONE]') {
                 try {
                   const data = JSON.parse(line.slice(6));
-                  assistantContent += data.delta || '';
+                  rawContent += data.delta || '';
                 } catch {}
               }
             }
@@ -229,23 +271,25 @@ function App() {
           if (line.startsWith('data: ') && line !== 'data: [DONE]') {
             try {
               const data = JSON.parse(line.slice(6));
-              assistantContent += data.delta || '';
-              flushUpdate(assistantContent);
+              rawContent += data.delta || '';
+              flushUpdate(rawContent);
             } catch {}
           }
         }
       }
 
-      // Đảm bảo frame cuối được render
-      flushUpdate(assistantContent);
+      flushUpdate(rawContent);
       await new Promise(r => requestAnimationFrame(r));
 
+      const { thinking: finalThinking, response: finalResponse } = parseThinking(rawContent);
       setSessions(prev => prev.map(s => {
         if (s.id === sessionId) {
           return {
             ...s,
             messages: s.messages.map(m =>
-              m.id === assistantId ? { ...m, content: assistantContent } : m
+              m.id === assistantId
+                ? { ...m, content: finalResponse, thinking: finalThinking }
+                : m
             ).slice(-MAX_MESSAGES),
           };
         }
@@ -268,7 +312,7 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [input, isLoading, currentSessionId]);
+  }, [input, isLoading, currentSessionId, thinkingEnabled]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -323,7 +367,22 @@ function App() {
           )}
         </div>
 
-        <div className="p-4 border-t border-slate-700">
+        <div className="p-4 border-t border-slate-700 space-y-3">
+          {/* Toggle thinking */}
+          <button
+            onClick={() => setThinkingEnabled(!thinkingEnabled)}
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl transition-all ${
+              thinkingEnabled
+                ? 'bg-purple-600/20 border border-purple-500/50 text-purple-300'
+                : 'bg-slate-800 border border-slate-600 text-slate-400 hover:bg-slate-700'
+            }`}
+          >
+            <Brain className="w-4 h-4" />
+            <span className="text-xs font-medium">
+              {thinkingEnabled ? 'Suy nghĩ: BẬT' : 'Suy nghĩ: TẮT'}
+            </span>
+          </button>
+
           <div className="flex items-center gap-3 px-2">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
               <Bot className="w-6 h-6 text-white" />
@@ -345,7 +404,7 @@ function App() {
               <h1 className="text-lg font-bold text-white">AI Assistant</h1>
               <p className="text-xs text-emerald-400 flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                Đang hoạt động
+                {thinkingEnabled ? 'Chế độ suy nghĩ sâu' : 'Đang hoạt động'}
               </p>
             </div>
           </div>
@@ -385,10 +444,17 @@ function App() {
                       ? 'bg-emerald-600 text-white'
                       : 'bg-slate-800 text-slate-100 border border-slate-700'
                   }`}>
+                    {/* Thinking block */}
+                    {msg.role === 'assistant' && msg.thinking && (
+                      <ThinkingBlock thinking={msg.thinking} />
+                    )}
                     <p className="whitespace-pre-wrap leading-relaxed">
                       {msg.content}
-                      {msg.role === 'assistant' && msg.content === '' && (
+                      {msg.role === 'assistant' && msg.content === '' && !msg.thinking && (
                         <span className="inline-block w-2 h-4 bg-emerald-400 animate-pulse ml-1" />
+                      )}
+                      {msg.role === 'assistant' && msg.thinking && msg.content === '' && (
+                        <span className="text-xs text-slate-400 italic">Đang suy nghĩ...</span>
                       )}
                     </p>
                     <p className={`text-xs mt-2 ${msg.role === 'user' ? 'text-emerald-200' : 'text-slate-500'}`}>
@@ -411,7 +477,9 @@ function App() {
                 </div>
                 <div className="bg-slate-800 border border-slate-700 rounded-2xl px-5 py-4 flex items-center gap-3">
                   <Loader2 className="w-5 h-5 text-emerald-400 animate-spin" />
-                  <span className="text-slate-400">AI đang suy nghĩ...</span>
+                  <span className="text-slate-400">
+                    {thinkingEnabled ? 'AI đang suy nghĩ sâu...' : 'AI đang suy nghĩ...'}
+                  </span>
                 </div>
               </div>
             )}
