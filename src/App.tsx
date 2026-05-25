@@ -265,7 +265,7 @@ function App() {
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-2xl mx-auto px-3 py-4 space-y-3">
+          <div className="max-w-4xl mx-auto px-3 py-4 space-y-3">
             {!currentSession || currentSession.messages.length === 0 ? (
               <div className="text-center py-12 px-4">
                 <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-emerald-600 flex items-center justify-center">
@@ -329,7 +329,7 @@ function App() {
 
         {/* Input */}
         <footer className="border-t border-slate-700 px-3 py-3 flex-shrink-0">
-          <form onSubmit={handleSubmit} className="max-w-2xl mx-auto flex gap-2">
+          <form onSubmit={handleSubmit} className="max-w-4xl mx-auto flex gap-2">
             <input
               ref={inputRef}
               value={input}
@@ -351,3 +351,4 @@ function App() {
 }
 
 export default App;
+                                   
