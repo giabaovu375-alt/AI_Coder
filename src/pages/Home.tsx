@@ -1,24 +1,27 @@
 import { Bot, Send } from 'lucide-react';
 import { useState, useRef } from 'react';
 import { MY_PRODUCTS } from '../data/products';
+import ProductModal from '../components/ProductModal';
 
 interface Props {
   onNavigateChat: () => void;
-  onNavigateProduct: (id: string) => void;
+  onNavigateProduct: (id: string) => void;      // <-- THÊM
 }
 
 export default function Home({ onNavigateChat, onNavigateProduct }: Props) {
   const [input, setInput] = useState('');
+  const [selectedProduct, setSelectedProduct] = useState<string | null>(null);  // <-- THÊM
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
-    // Lưu tạm câu hỏi vào localStorage để trang Chat lấy ra
     localStorage.setItem('pending-prompt', input.trim());
     setInput('');
     onNavigateChat();
   };
+
+  const product = selectedProduct ? MY_PRODUCTS.find(p => p.id === selectedProduct) : null;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
@@ -58,13 +61,13 @@ export default function Home({ onNavigateChat, onNavigateProduct }: Props) {
           </form>
         </div>
 
-        {/* Danh sách sản phẩm – Card to hơn */}
+        {/* Danh sách sản phẩm */}
         <h2 className="text-2xl font-bold text-white mb-6">Sản phẩm của tôi</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {MY_PRODUCTS.map(product => (
             <button
               key={product.id}
-              onClick={() => onNavigateProduct(product.id)}
+              onClick={() => setSelectedProduct(product.id)}  // <-- SỬA
               className="group w-full text-left rounded-2xl border border-slate-700/40 bg-slate-900/60 p-6 backdrop-blur-sm transition-all hover:border-violet-500/30 hover:bg-slate-800/80 hover:shadow-lg hover:shadow-violet-500/10 active:scale-[0.98]"
             >
               <div className="flex items-start gap-5">
@@ -91,6 +94,18 @@ export default function Home({ onNavigateChat, onNavigateProduct }: Props) {
           ))}
         </div>
       </div>
+
+      {/* Modal */}
+      {product && (
+        <ProductModal
+          product={product}
+          onClose={() => setSelectedProduct(null)}
+          onViewDetail={(id) => {
+            setSelectedProduct(null);
+            onNavigateProduct(id);
+          }}
+        />
+      )}
     </div>
   );
 }
