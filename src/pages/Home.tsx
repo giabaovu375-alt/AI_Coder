@@ -1,111 +1,104 @@
-import { Bot, Send } from 'lucide-react';
 import { useState, useRef } from 'react';
-import { MY_PRODUCTS } from '../data/products';
-import ProductModal from '../components/ProductModal';
+import { Send, Bot, ArrowUpRight } from 'lucide-react';
 
-interface Props {
-  onNavigateChat: () => void;
-  onNavigateProduct: (id: string) => void;      // <-- THÊM
-}
+const products = [
+  { id: 'codenova', title: 'CodeNova', desc: 'Nền tảng học lập trình với AI', image: '/images/codenova.jpg', link: '#' },
+  { id: 'chess', title: 'Game Review', desc: 'Phân tích ván cờ miễn phí', image: '/images/chess.jpg', link: '#' },
+  { id: 'ai-coder', title: 'AI Coder', desc: 'Trợ lý lập trình AI', image: '/images/ai-coder.jpg', link: '#' },
+  { id: 'tools', title: 'Công cụ', desc: 'Các tiện ích lập trình', image: '/images/tools.jpg', link: '#' },
+];
 
-export default function Home({ onNavigateChat, onNavigateProduct }: Props) {
-  const [input, setInput] = useState('');
-  const [selectedProduct, setSelectedProduct] = useState<string | null>(null);  // <-- THÊM
+export default function Home({ onNavigateChat }: { onNavigateChat: () => void }) {
+  const [prompt, setPrompt] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim()) return;
-    localStorage.setItem('pending-prompt', input.trim());
-    setInput('');
+    if (!prompt.trim()) return;
+    localStorage.setItem('pending-prompt', prompt.trim());
+    setPrompt('');
     onNavigateChat();
   };
 
-  const product = selectedProduct ? MY_PRODUCTS.find(p => p.id === selectedProduct) : null;
+  const featured = products[0];
+  const rest = products.slice(1);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
-      <div className="mx-auto max-w-4xl px-4 py-12">
-        {/* Header */}
-        <div className="text-center mb-12">
-          <div className="inline-flex items-center gap-3 mb-4">
-            <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-xl shadow-violet-500/30">
-              <Bot className="h-8 w-8 text-white" />
-            </div>
-            <h1 className="text-4xl font-extrabold bg-gradient-to-r from-violet-400 to-purple-300 bg-clip-text text-transparent">
-              AI Assistant
-            </h1>
+    <div className="min-h-screen bg-[#0A0A0F] text-white flex flex-col items-center justify-center px-4 py-12">
+      {/* Hero */}
+      <div className="text-center mb-10">
+        <div className="inline-flex items-center gap-3 mb-4">
+          <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-xl shadow-indigo-500/20">
+            <Bot className="h-7 w-7 text-white" />
           </div>
-          <p className="text-slate-400 text-lg max-w-md mx-auto">
-            Hỏi tôi bất cứ điều gì hoặc khám phá những sản phẩm tôi đã xây dựng
-          </p>
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-indigo-300 to-violet-400 bg-clip-text text-transparent">
+            AI Assistant
+          </h1>
         </div>
+        <p className="text-gray-400 text-lg max-w-md mx-auto">
+          Trợ lý AI thông minh, sẵn sàng trả lời mọi câu hỏi của bạn
+        </p>
+      </div>
 
-        {/* Ô chat nhỏ */}
-        <div className="mb-12">
-          <form onSubmit={handleSend} className="flex gap-3 max-w-2xl mx-auto">
-            <input
-              ref={inputRef}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              placeholder="Nhập câu hỏi để bắt đầu chat..."
-              className="flex-1 bg-slate-800/80 border border-slate-700/40 rounded-xl px-5 py-3.5 text-[15px] text-white placeholder-slate-400 backdrop-blur transition-all focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50"
-            />
-            <button
-              type="submit"
-              disabled={!input.trim()}
-              className="flex-shrink-0 rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 px-5 py-3.5 text-white shadow-lg shadow-violet-500/20 hover:from-violet-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.98]"
-            >
-              <Send className="h-5 w-5" />
-            </button>
-          </form>
+      {/* Thanh chat chính giữa */}
+      <form onSubmit={handleSend} className="w-full max-w-2xl mb-14">
+        <div className="relative flex items-center bg-[#1A1A24] border border-gray-700/60 rounded-2xl shadow-2xl shadow-black/30 backdrop-blur-sm transition-all focus-within:border-indigo-500/60">
+          <input
+            ref={inputRef}
+            value={prompt}
+            onChange={e => setPrompt(e.target.value)}
+            placeholder="Nhập câu hỏi hoặc yêu cầu..."
+            className="flex-1 bg-transparent px-6 py-5 text-white placeholder-gray-500 outline-none text-lg"
+          />
+          <button
+            type="submit"
+            disabled={!prompt.trim()}
+            className="mr-3 flex-shrink-0 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 p-3 text-white shadow-lg shadow-indigo-500/20 hover:from-indigo-600 hover:to-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+          >
+            <Send className="h-5 w-5" />
+          </button>
         </div>
+      </form>
 
-        {/* Danh sách sản phẩm */}
-        <h2 className="text-2xl font-bold text-white mb-6">Sản phẩm của tôi</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {MY_PRODUCTS.map(product => (
-            <button
-              key={product.id}
-              onClick={() => setSelectedProduct(product.id)}  // <-- SỬA
-              className="group w-full text-left rounded-2xl border border-slate-700/40 bg-slate-900/60 p-6 backdrop-blur-sm transition-all hover:border-violet-500/30 hover:bg-slate-800/80 hover:shadow-lg hover:shadow-violet-500/10 active:scale-[0.98]"
+      {/* Sản phẩm */}
+      <div className="w-full max-w-5xl">
+        <h2 className="text-xl font-semibold text-gray-300 mb-6">Sản phẩm của tôi</h2>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Card lớn */}
+          <a
+            href={featured.link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="lg:col-span-2 lg:row-span-2 group relative overflow-hidden rounded-2xl bg-[#1A1A24] border border-gray-700/50 p-6 hover:border-indigo-500/40 transition-all duration-300 shadow-lg hover:shadow-indigo-500/10"
+          >
+            <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+              <ArrowUpRight className="h-5 w-5 text-indigo-400" />
+            </div>
+            <div className="h-40 bg-gradient-to-br from-indigo-600/20 to-violet-600/20 rounded-xl mb-5 flex items-center justify-center">
+              <span className="text-5xl opacity-40">{featured.title.charAt(0)}</span>
+            </div>
+            <h3 className="text-2xl font-bold text-white mb-2">{featured.title}</h3>
+            <p className="text-gray-400 text-base">{featured.desc}</p>
+          </a>
+
+          {/* 3 card nhỏ */}
+          {rest.map(item => (
+            <a
+              key={item.id}
+              href={item.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group relative overflow-hidden rounded-2xl bg-[#1A1A24] border border-gray-700/50 p-5 hover:border-indigo-500/40 transition-all duration-300 shadow-lg hover:shadow-indigo-500/10"
             >
-              <div className="flex items-start gap-5">
-                {product.image && (
-                  <div className="h-20 w-20 rounded-xl overflow-hidden flex-shrink-0 bg-slate-800">
-                    <img
-                      src={product.image}
-                      alt={product.title}
-                      className="h-full w-full object-cover"
-                      onError={e => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                      }}
-                    />
-                  </div>
-                )}
-                <div>
-                  <h3 className="text-xl font-semibold text-white group-hover:text-violet-400 transition-colors">
-                    {product.title}
-                  </h3>
-                  <p className="mt-2 text-sm text-slate-400 line-clamp-3">{product.description}</p>
-                </div>
+              <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                <ArrowUpRight className="h-4 w-4 text-indigo-400" />
               </div>
-            </button>
+              <h3 className="text-lg font-semibold text-white mb-1">{item.title}</h3>
+              <p className="text-gray-400 text-sm">{item.desc}</p>
+            </a>
           ))}
         </div>
       </div>
-
-      {/* Modal */}
-      {product && (
-        <ProductModal
-          product={product}
-          onClose={() => setSelectedProduct(null)}
-          onViewDetail={(id) => {
-            setSelectedProduct(null);
-            onNavigateProduct(id);
-          }}
-        />
-      )}
     </div>
   );
 }
