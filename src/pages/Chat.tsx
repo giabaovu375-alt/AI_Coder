@@ -16,6 +16,7 @@ interface ChatSession {
 
 interface Props {
   onBack: () => void;
+  initialMessage?: string;
 }
 
 // ---------- Constants ----------
@@ -23,7 +24,9 @@ const SPACE_URL = 'https://toilatop1sever-ai-coder.hf.space/chat';
 const SESSION_STORAGE_KEY = 'nova-ai-sessions';
 const MAX_MESSAGES_PER_SESSION = 100;
 const SCROLL_THRESHOLD = 120;
-const FLUSH_INTERVAL_MS = 65;
+
+// Flush ngay khi có data — không delay thêm
+const FLUSH_INTERVAL_MS = 0;
 
 const SUGGESTIONS = [
   'Giải thích khái niệm này cho tôi',
@@ -68,7 +71,7 @@ function saveSessionsToStorage(sessions: ChatSession[]): void {
 }
 
 // ---------- Component ----------
-export default function Chat({ onBack }: Props) {
+export default function Chat({ onBack, initialMessage }: Props) {
   const [sessions, setSessions] = useState<ChatSession[]>(loadSessionsFromStorage);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
     const stored = loadSessionsFromStorage();
@@ -86,18 +89,32 @@ export default function Chat({ onBack }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mounted = useRef(true);
   const sessionsRef = useRef(sessions);
-  const rafRef = useRef<number>(0);
-  const lastFlushRef = useRef<number>(0);
 
-  // Keep sessionsRef in sync
+  // Dùng ref để batch update text — tránh re-render quá nhiều
+  const fullTextRef = useRef('');
+  const activeSessionIdRef = useRef(activeSessionId);
+
+  // Auto-send message từ trang chủ
+  const initialMessageRef = useRef(initialMessage);
+  useEffect(() => {
+    const msg = initialMessageRef.current;
+    if (msg?.trim()) {
+      initialMessageRef.current = '';
+      handleSend(msg);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep refs in sync
   useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
+  useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);
 
   const activeSession = sessions.find(s => s.id === activeSessionId) ?? null;
   const messages = activeSession?.messages ?? [];
 
-  // Debounced localStorage save (avoid writing on every stream chunk)
+  // Debounced localStorage save
   useEffect(() => {
-    const t = setTimeout(() => saveSessionsToStorage(sessions), 500);
+    const t = setTimeout(() => saveSessionsToStorage(sessions), 800);
     return () => clearTimeout(t);
   }, [sessions]);
 
@@ -107,7 +124,6 @@ export default function Chat({ onBack }: Props) {
     return () => {
       mounted.current = false;
       abortRef.current?.abort();
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, []);
 
@@ -138,12 +154,11 @@ export default function Chat({ onBack }: Props) {
     return () => el.removeEventListener('scroll', onScroll);
   }, []);
 
-  // Scroll to bottom
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     bottomRef.current?.scrollIntoView({ behavior });
   }, []);
 
-  // Update the last assistant message in a session
+  // Update assistant message — gọi trực tiếp, không qua RAF
   const updateLastMessage = useCallback((sessionId: string, assistantId: string, text: string) => {
     setSessions(prev => prev.map(s => {
       if (s.id !== sessionId) return s;
@@ -155,7 +170,6 @@ export default function Chat({ onBack }: Props) {
     }));
   }, []);
 
-  // Create a new session — stable ref via useCallback
   const createNewSession = useCallback((title?: string): string => {
     const newSession: ChatSession = {
       id: genId(),
@@ -168,16 +182,15 @@ export default function Chat({ onBack }: Props) {
     return newSession.id;
   }, []);
 
-  // Delete a session
   const deleteSession = useCallback((id: string) => {
     setSessions(prev => {
       const remaining = prev.filter(s => s.id !== id);
-      if (activeSessionId === id) {
+      if (activeSessionIdRef.current === id) {
         setActiveSessionId(remaining[0]?.id ?? null);
       }
       return remaining;
     });
-  }, [activeSessionId]);
+  }, []);
 
   // Main send handler
   const handleSend = useCallback(async (text: string) => {
@@ -189,7 +202,7 @@ export default function Chat({ onBack }: Props) {
     abortRef.current = controller;
 
     // Resolve or create session
-    let sessionId = sessionsRef.current.find(s => s.id === activeSessionId)?.id;
+    let sessionId = sessionsRef.current.find(s => s.id === activeSessionIdRef.current)?.id;
     if (!sessionId) {
       sessionId = createNewSession(
         trimmed.slice(0, 30) + (trimmed.length > 30 ? '…' : '')
@@ -201,15 +214,12 @@ export default function Chat({ onBack }: Props) {
     const assistantId = genId();
     const assistantMsg: Message = { id: assistantId, role: 'ai', text: '', timestamp: now };
 
-    // Build history from existing messages (exclude the new user message to avoid duplication)
     const existingMessages = sessionsRef.current.find(s => s.id === sessionId)?.messages ?? [];
     const history = existingMessages
       .slice(-9)
       .map(({ role, text: t }) => ({ role, content: t }));
-    // Append current user turn
     history.push({ role: 'user', content: trimmed });
 
-    // Add placeholder messages
     setSessions(prev => prev.map(s => {
       if (s.id !== sessionId) return s;
       return {
@@ -227,6 +237,15 @@ export default function Chat({ onBack }: Props) {
     setShowScrollBtn(false);
     scrollToBottom('smooth');
 
+    // Reset accumulator
+    fullTextRef.current = '';
+
+    // Hàm flush gọi trực tiếp — không qua RAF hay setTimeout
+    const flushNow = () => {
+      if (!mounted.current) return;
+      updateLastMessage(sessionId!, assistantId, stripThink(fullTextRef.current));
+    };
+
     try {
       const res = await fetch(SPACE_URL, {
         method: 'POST',
@@ -240,56 +259,60 @@ export default function Chat({ onBack }: Props) {
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let full = '', buffer = '', pending = false;
+      let buffer = '';
 
-      const flush = () => {
-        if (!mounted.current) return;
-        pending = false;
-        updateLastMessage(sessionId!, assistantId, stripThink(full));
-        if (!showScrollBtn) scrollToBottom('smooth');
-      };
+      // Throttle nhẹ: chỉ để tránh quá nhiều re-render liên tiếp trên mobile
+      let lastFlush = 0;
+      const THROTTLE = FLUSH_INTERVAL_MS; // 0 = flush mỗi chunk
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        if (controller.signal.aborted) break;
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
         buffer = lines.pop() ?? '';
 
+        let gotData = false;
         for (const line of lines) {
           if (line.startsWith('data: ') && line !== 'data: [DONE]') {
             try {
-              full += JSON.parse(line.slice(6)).delta ?? '';
+              const delta = JSON.parse(line.slice(6)).delta ?? '';
+              if (delta) {
+                fullTextRef.current += delta;
+                gotData = true;
+              }
             } catch { /* malformed chunk */ }
           }
         }
 
-        if (!pending) {
+        if (gotData) {
           const now = performance.now();
-          if (now - lastFlushRef.current > FLUSH_INTERVAL_MS) {
-            lastFlushRef.current = now;
-            pending = true;
-            rafRef.current = requestAnimationFrame(() => {
-              if (mounted.current) flush();
-            });
+          if (now - lastFlush >= THROTTLE) {
+            lastFlush = now;
+            flushNow();
+            // Scroll chỉ khi user ở gần bottom
+            if (!showScrollBtn) scrollToBottom('smooth');
           }
         }
       }
 
-      // Final flush with complete text
+      // Final flush
       if (mounted.current) {
-        updateLastMessage(sessionId!, assistantId, stripThink(full));
+        flushNow();
         scrollToBottom('smooth');
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') {
-        // Remove empty assistant placeholder if user stopped before any text arrived
         setSessions(prev => prev.map(s => {
           if (s.id !== sessionId) return s;
+          // Nếu AI chưa trả về gì thì xóa placeholder, ngược lại giữ lại text đã stream
           return {
             ...s,
-            messages: s.messages.filter(m => !(m.id === assistantId && m.text === '')),
+            messages: s.messages.filter(
+              m => !(m.id === assistantId && m.text === '')
+            ),
           };
         }));
         return;
@@ -302,7 +325,7 @@ export default function Chat({ onBack }: Props) {
         setIsStreaming(false);
       }
     }
-  }, [isLoading, activeSessionId, createNewSession, updateLastMessage, scrollToBottom, showScrollBtn]);
+  }, [isLoading, createNewSession, updateLastMessage, scrollToBottom, showScrollBtn]);
 
   const stopStream = useCallback(() => abortRef.current?.abort(), []);
 
@@ -495,4 +518,4 @@ export default function Chat({ onBack }: Props) {
       </div>
     </div>
   );
-}
+  }
