@@ -1,16 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, startTransition, useCallback } from 'react';
 import {
   ArrowLeft, Sparkles, Send, Square, ChevronDown,
   Paperclip, Mic, MoreHorizontal
 } from 'lucide-react';
 import ChatMessage from '../components/ChatMessage';
-
-interface Message {
-  id: string;
-  role: 'user' | 'ai';
-  text: string;
-  timestamp: string; // ISO string, an toàn serialize
-}
+import type { Message } from '../components/ChatMessage';
 
 interface Props {
   onBack: () => void;
@@ -26,7 +20,6 @@ const SUGGESTIONS = [
   'So sánh hai phương pháp',
 ];
 
-// Chỉ xóa thẻ think khi đã có đủ nội dung (dùng cuối stream)
 const stripThink = (text: string) => text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 
 export default function Chat({ onBack, initialMessage }: Props) {
@@ -41,15 +34,14 @@ export default function Chat({ onBack, initialMessage }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mounted = useRef(true);
   const initialSent = useRef<string | null>(null);
-  const messagesRef = useRef<Message[]>([]); // Ref giữ messages mới nhất
-  const rafRef = useRef<number>(0); // Lưu requestAnimationFrame id
+  const messagesRef = useRef<Message[]>([]);
+  const rafRef = useRef<number>(0);
+  const lastFlushRef = useRef<number>(0);
 
-  // Đồng bộ messages vào ref
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
-  // Cleanup khi unmount
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -59,7 +51,6 @@ export default function Chat({ onBack, initialMessage }: Props) {
     };
   }, []);
 
-  // Gửi initialMessage một lần duy nhất (an toàn với StrictMode)
   useEffect(() => {
     if (!initialMessage) return;
     if (initialSent.current === initialMessage) return;
@@ -68,14 +59,15 @@ export default function Chat({ onBack, initialMessage }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialMessage]);
 
-  // Auto scroll khi có tin nhắn mới
+  // Scroll tối ưu: chỉ chạy khi số lượng message thay đổi
   useEffect(() => {
-    if (!showScrollBtn) {
-      bottomRef.current?.scrollIntoView({ behavior: isStreaming ? 'auto' : 'smooth' });
-    }
-  }, [messages, isStreaming, showScrollBtn]);
+    if (showScrollBtn) return;
+    const id = requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ block: 'end' });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [messages.length, showScrollBtn]);
 
-  // Auto-resize textarea
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -83,7 +75,6 @@ export default function Chat({ onBack, initialMessage }: Props) {
     ta.style.height = Math.min(ta.scrollHeight, 180) + 'px';
   }, [input]);
 
-  // Lắng nghe sự kiện cuộn để hiển thị nút "Cuộn xuống"
   useEffect(() => {
     const el = mainRef.current;
     if (!el) return;
@@ -95,7 +86,18 @@ export default function Chat({ onBack, initialMessage }: Props) {
     return () => el.removeEventListener('scroll', onScroll);
   }, []);
 
-  // Hàm gửi tin nhắn chính
+  // Hàm helper cập nhật tin nhắn cuối cùng (chỉ sửa phần tử cuối, không map toàn bộ)
+  const updateLastMessage = (assistantId: string, text: string) => {
+    setMessages(prev => {
+      const next = [...prev];
+      const last = next[next.length - 1];
+      if (last?.id === assistantId) {
+        next[next.length - 1] = { ...last, text };
+      }
+      return next;
+    });
+  };
+
   async function handleSend(text: string) {
     if (!text.trim() || isLoading) return;
     abortRef.current?.abort();
@@ -116,13 +118,11 @@ export default function Chat({ onBack, initialMessage }: Props) {
       timestamp: new Date().toISOString(),
     };
 
-    // Dùng ref để tạo history mới nhất, tránh stale state
     const latestMessages = messagesRef.current;
     const history = [...latestMessages, userMsg]
       .slice(-10)
       .map(({ role, text: msgText }) => ({ role, content: msgText }));
 
-    // Functional update – tránh race condition
     setMessages(prev => [...prev, userMsg, assistantMsg]);
     setInput('');
     setIsLoading(true);
@@ -143,11 +143,12 @@ export default function Chat({ onBack, initialMessage }: Props) {
       const decoder = new TextDecoder();
       let full = '', buffer = '', pending = false;
 
-      // Trong quá trình stream: hiển thị text thô (không strip think)
       const flush = () => {
         if (!mounted.current) return;
         pending = false;
-        setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, text: full } : m));
+        startTransition(() => {
+          updateLastMessage(assistantId, full);
+        });
       };
 
       while (true) {
@@ -162,27 +163,32 @@ export default function Chat({ onBack, initialMessage }: Props) {
           }
         }
         if (!pending) {
-          pending = true;
-          rafRef.current = requestAnimationFrame(() => {
-            if (mounted.current) flush();
-          });
+          // Throttle: giới hạn khoảng 25fps
+          const now = performance.now();
+          if (now - lastFlushRef.current > 40) {
+            lastFlushRef.current = now;
+            pending = true;
+            rafRef.current = requestAnimationFrame(() => {
+              if (mounted.current) flush();
+            });
+          }
         }
       }
-      // Kết thúc stream: strip think lần cuối
       if (mounted.current) {
         const finalText = stripThink(full);
-        setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, text: finalText } : m));
+        startTransition(() => {
+          updateLastMessage(assistantId, finalText);
+        });
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') {
-        // Xóa message AI rỗng khi abort
         setMessages(prev => prev.filter(m => !(m.id === assistantId && m.role === 'ai' && !m.text)));
         return;
       }
       const msg = err instanceof Error ? err.message : 'Unknown error';
-      setMessages(prev =>
-        prev.map(m => m.id === assistantId ? { ...m, text: `Lỗi kết nối: ${msg}` } : m)
-      );
+      startTransition(() => {
+        updateLastMessage(assistantId, `Lỗi kết nối: ${msg}`);
+      });
     } finally {
       if (mounted.current) {
         setIsLoading(false);
@@ -191,11 +197,9 @@ export default function Chat({ onBack, initialMessage }: Props) {
     }
   }
 
-  // Dừng stream: abort + reset state ngay lập tức
   function stopStream() {
     abortRef.current?.abort();
-    setIsLoading(false);
-    setIsStreaming(false);
+    // finally sẽ tự reset isLoading và isStreaming
   }
 
   function send() { handleSend(input); }
@@ -216,7 +220,6 @@ export default function Chat({ onBack, initialMessage }: Props) {
 
   return (
     <div className="min-h-screen bg-[#212121] flex flex-col text-white">
-      {/* Header */}
       <header className="sticky top-0 z-10 bg-[#212121]/90 backdrop-blur-md border-b border-white/[0.06]">
         <div className="max-w-4xl mx-auto flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
@@ -245,7 +248,6 @@ export default function Chat({ onBack, initialMessage }: Props) {
         </div>
       </header>
 
-      {/* Messages */}
       <main ref={mainRef} className="flex-1 overflow-y-auto scroll-smooth">
         <div className="max-w-3xl mx-auto px-4 py-8">
           {isEmpty ? (
@@ -274,12 +276,12 @@ export default function Chat({ onBack, initialMessage }: Props) {
             </div>
           ) : (
             <div className="space-y-6 pb-4">
-              {messages.map(msg => (
+              {messages.map((msg, i) => (
                 <ChatMessage
                   key={msg.id}
                   msg={msg}
-                  isStreaming={isStreaming}
-                  isLast={msg.id === messages[messages.length - 1]?.id}
+                  isStreaming={isStreaming && i === messages.length - 1}
+                  isLast={i === messages.length - 1}
                 />
               ))}
             </div>
@@ -288,7 +290,6 @@ export default function Chat({ onBack, initialMessage }: Props) {
         </div>
       </main>
 
-      {/* Scroll to bottom button */}
       {showScrollBtn && (
         <button
           onClick={scrollToBottom}
@@ -299,7 +300,6 @@ export default function Chat({ onBack, initialMessage }: Props) {
         </button>
       )}
 
-      {/* Input area */}
       <div className="sticky bottom-0 bg-gradient-to-t from-[#212121] via-[#212121] to-transparent pt-4 pb-5 px-4">
         <div className="max-w-3xl mx-auto">
           <div className="relative bg-[#2f2f2f] border border-white/[0.08] rounded-2xl shadow-2xl focus-within:border-white/20 transition-colors duration-200">
