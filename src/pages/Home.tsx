@@ -1,178 +1,196 @@
-import { useState, useRef } from 'react';
-import { Send, Bot, Menu, MessageSquare, Plus, X, ArrowUpRight } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ArrowRight, Menu, X, Sparkles, Send, Bot, Image, Code2, Globe } from 'lucide-react';
+import { BIG_PRODUCT, SMALL_PRODUCTS, type Product } from '../data/products';
 
-interface Message {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: Date;
-}
-
-interface Session {
-  id: string;
-  title: string;
-  messages: Message[];
-  createdAt: Date;
-}
-
-const PRODUCTS = [
-  { id: 'codenova', title: 'CodeNova', desc: 'Nền tảng học lập trình với AI', image: '/images/codenova.jpg', link: '#' },
-  { id: 'chess', title: 'Game Review', desc: 'Phân tích ván cờ miễn phí', image: '/images/chess.jpg', link: '#' },
-  { id: 'ai-coder', title: 'AI Coder', desc: 'Trợ lý lập trình AI', image: '/images/ai-coder.jpg', link: '#' },
-  { id: 'tools', title: 'Công cụ', desc: 'Các tiện ích lập trình', image: '/images/tools.jpg', link: '#' },
-];
+const iconMap: Record<string, React.ComponentType<any>> = {
+  Bot, Image, Code2, Globe, Sparkles, Send, ArrowRight, Menu, X,
+};
 
 interface Props {
-  sessions: Session[];
-  onCreateSession: (firstMessage: string) => string;
-  onNavigateChat: (sessionId: string) => void;
+  onStartChat: (msg: string) => void;
 }
 
-export default function Home({ sessions, onCreateSession, onNavigateChat }: Props) {
-  const [prompt, setPrompt] = useState('');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+export default function Home({ onStartChat }: Props) {
+  const [input, setInput] = useState('');
+  const [navOpen, setNavOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
 
-  const handleSend = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!prompt.trim()) return;
-    const sessionId = onCreateSession(prompt.trim());
-    setPrompt('');
-    onNavigateChat(sessionId);
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 20);
+    window.addEventListener('scroll', onScroll);
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  function send() {
+    const text = input.trim();
+    if (!text) return;
+    onStartChat(text);
+  }
+
+  function handleKey(e: React.KeyboardEvent) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  }
+
+  const renderProductCard = (product: Product, isBig: boolean) => {
+    const IconComponent = iconMap[product.icon] || Sparkles;
+    return (
+      <div
+        key={product.id}
+        className={`rounded-2xl p-6 bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-white/10 hover:border-blue-500/30 hover:shadow-lg hover:shadow-blue-500/10 transition-all cursor-pointer group ${isBig ? 'lg:col-span-1' : ''}`}
+      >
+        {product.image && (
+          <div className="w-full h-48 mb-4 rounded-xl overflow-hidden">
+            <img
+              src={product.image}
+              alt={product.name}
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            />
+          </div>
+        )}
+        <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${product.color} flex items-center justify-center mb-4 shadow-lg`}>
+          <IconComponent size={22} className="text-white" />
+        </div>
+        <h3 className="text-white font-semibold text-lg mb-2">{product.name}</h3>
+        <p className="text-slate-400 text-sm leading-relaxed">{product.description}</p>
+        <button className="mt-4 text-blue-400 text-sm font-medium flex items-center gap-1 hover:gap-2 transition-all">
+          Khám phá <ArrowRight size={14} />
+        </button>
+      </div>
+    );
   };
 
-  const featured = PRODUCTS[0];
-  const rest = PRODUCTS.slice(1);
-
   return (
-    <div className="min-h-screen bg-[#0A0A0F] text-white relative overflow-hidden">
-      {/* Background glow */}
-      <div className="absolute inset-0 -z-10 pointer-events-none">
-        <div className="absolute top-[-200px] left-1/2 h-[500px] w-[500px] -translate-x-1/2 rounded-full bg-indigo-600/20 blur-3xl" />
-      </div>
-
-      {/* Menu button */}
-      <button
-        onClick={() => setSidebarOpen(true)}
-        className="fixed top-4 left-4 z-30 p-2 rounded-xl bg-[#1A1A24] border border-gray-700/50 text-gray-400 hover:text-white transition-colors"
+    <div className="min-h-screen bg-gradient-to-b from-[#0f172a] via-[#1e293b] to-[#0f172a]">
+      {/* Navbar */}
+      <nav
+        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+          scrolled ? 'bg-[#0f172a]/95 backdrop-blur-md border-b border-white/10 shadow-lg' : 'bg-transparent'
+        }`}
       >
-        <Menu className="h-5 w-5" />
-      </button>
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-blue-500/30">
+              <Sparkles size={16} className="text-white" />
+            </div>
+            <span className="font-bold text-lg text-white">Nova AI</span>
+          </div>
 
-      {/* Sidebar lịch sử (drawer) */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-40 flex">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
-          <div className="relative w-72 bg-[#0F0F18] border-r border-gray-800 p-4 flex flex-col animate-in slide-in-from-left duration-200">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">Lịch sử chat</h2>
-              <button onClick={() => setSidebarOpen(false)} className="p-1 rounded-lg hover:bg-gray-800">
-                <X className="h-5 w-5 text-gray-400" />
+          <div className="hidden md:flex items-center gap-8">
+            {['Tính năng', 'Sản phẩm', 'Giá cả'].map(item => (
+              <a key={item} href="#" className="text-slate-400 hover:text-white text-sm font-medium transition-colors">{item}</a>
+            ))}
+          </div>
+
+          <div className="hidden md:flex items-center gap-3">
+            <button className="text-slate-300 hover:text-white text-sm font-medium px-4 py-2 transition-colors">Đăng nhập</button>
+            <button className="bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold px-5 py-2 rounded-xl transition-all hover:shadow-lg hover:shadow-blue-500/30 hover:-translate-y-0.5">Đăng ký</button>
+          </div>
+
+          <button className="md:hidden text-slate-300" onClick={() => setNavOpen(!navOpen)}>
+            {navOpen ? <X size={22} /> : <Menu size={22} />}
+          </button>
+        </div>
+
+        {navOpen && (
+          <div className="md:hidden bg-[#0f172a]/95 border-t border-white/10 px-4 pb-4 animate-fade-in-up">
+            <div className="pt-3 space-y-1">
+              {['Tính năng', 'Sản phẩm', 'Giá cả'].map(item => (
+                <a key={item} href="#" className="block text-slate-300 py-2.5 px-3 rounded-lg hover:bg-white/8">{item}</a>
+              ))}
+              <div className="flex gap-2 pt-3 border-t border-white/10">
+                <button className="flex-1 border border-white/15 text-slate-300 py-2 rounded-xl">Đăng nhập</button>
+                <button className="flex-1 bg-blue-600 text-white py-2 rounded-xl">Đăng ký</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </nav>
+
+      {/* Hero */}
+      <section className="pt-32 pb-16 px-4 sm:px-6">
+        <div className="max-w-3xl mx-auto text-center">
+          <div className="inline-flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 rounded-full px-4 py-1.5 mb-6">
+            <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse"></span>
+            <span className="text-blue-300 text-sm">Phiên bản 2.0</span>
+          </div>
+
+          <h1 className="text-4xl sm:text-5xl font-bold mb-5 leading-tight">
+            <span className="text-white">Trợ lý AI thông minh</span>
+            <br />
+            <span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">dành cho bạn</span>
+          </h1>
+
+          <p className="text-slate-400 text-lg mb-10 max-w-xl mx-auto">
+            Nova AI giúp bạn hoàn thành công việc nhanh hơn với khả năng hiểu ngôn ngữ tự nhiên.
+          </p>
+
+          {/* Chat input on homepage */}
+          <div className="w-full max-w-2xl mx-auto mb-8">
+            <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-4 py-3 focus-within:border-blue-500/50 focus-within:bg-white/8 transition-all">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center flex-shrink-0">
+                <Sparkles size={14} className="text-white" />
+              </div>
+              <input
+                type="text"
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={handleKey}
+                placeholder="Hỏi Nova AI bất cứ điều gì..."
+                className="flex-1 bg-transparent text-white placeholder-slate-500 outline-none text-sm"
+              />
+              <button
+                onClick={send}
+                disabled={!input.trim()}
+                className="bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/40 disabled:cursor-not-allowed text-white px-5 py-2 rounded-xl font-medium transition-all hover:shadow-lg hover:shadow-blue-500/30 flex items-center gap-2"
+              >
+                <span className="hidden sm:inline">Gửi</span>
+                <Send size={16} />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto space-y-2">
-              {sessions.length === 0 ? (
-                <p className="text-gray-500 text-sm text-center py-8">Chưa có cuộc trò chuyện nào</p>
-              ) : (
-                sessions.map(s => (
-                  <button
-                    key={s.id}
-                    onClick={() => {
-                      setSidebarOpen(false);
-                      onNavigateChat(s.id);
-                    }}
-                    className="w-full flex items-center gap-3 px-3 py-3 rounded-xl bg-slate-800/40 hover:bg-slate-800/60 text-left transition-colors"
-                  >
-                    <MessageSquare className="h-4 w-4 text-indigo-400 flex-shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{s.title}</p>
-                      <p className="text-xs text-gray-500">{s.messages.length} tin nhắn</p>
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
           </div>
-        </div>
-      )}
 
-      {/* Main Content */}
-      <div className="flex flex-col items-center justify-center min-h-screen px-4 pt-16 pb-8">
-        {/* Hero */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-3 mb-4">
-            <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-xl shadow-indigo-500/20">
-              <Bot className="h-7 w-7 text-white" />
-            </div>
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-indigo-300 to-violet-400 bg-clip-text text-transparent">
-              AI Assistant
-            </h1>
-          </div>
-          <p className="text-gray-400 text-lg max-w-md mx-auto">
-            Trợ lý AI thông minh, sẵn sàng trả lời mọi câu hỏi của bạn
-          </p>
-        </div>
-
-        {/* Thanh chat */}
-        <form onSubmit={handleSend} className="w-full max-w-2xl mb-8">
-          <div className="relative flex items-center bg-[#1A1A24] border border-gray-700/60 rounded-2xl shadow-2xl shadow-black/30 backdrop-blur-sm transition-all focus-within:border-indigo-500/60">
-            <input
-              ref={inputRef}
-              value={prompt}
-              onChange={e => setPrompt(e.target.value)}
-              placeholder="Nhập câu hỏi hoặc yêu cầu..."
-              className="flex-1 bg-transparent px-6 py-5 text-white placeholder-gray-500 outline-none text-lg"
-            />
-            <button
-              type="submit"
-              disabled={!prompt.trim()}
-              className="mr-3 flex-shrink-0 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 p-3 text-white shadow-lg shadow-indigo-500/20 hover:from-indigo-600 hover:to-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-            >
-              <Send className="h-5 w-5" />
-            </button>
-          </div>
-        </form>
-
-        {/* Sản phẩm - Đẩy xuống dưới */}
-        <div className="w-full max-w-5xl mt-8">
-          <h2 className="text-xl font-semibold text-gray-300 mb-6">Sản phẩm của tôi</h2>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Card lớn */}
-            <a
-              href={featured.link}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="lg:col-span-2 lg:row-span-2 group relative overflow-hidden rounded-2xl bg-[#1A1A24] border border-gray-700/50 p-6 hover:border-indigo-500/40 transition-all duration-300 shadow-lg hover:shadow-indigo-500/10"
-            >
-              <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                <ArrowUpRight className="h-5 w-5 text-indigo-400" />
-              </div>
-              <div className="h-40 bg-gradient-to-br from-indigo-600/20 to-violet-600/20 rounded-xl mb-5 flex items-center justify-center">
-                <span className="text-5xl opacity-40">{featured.title.charAt(0)}</span>
-              </div>
-              <h3 className="text-2xl font-bold text-white mb-2">{featured.title}</h3>
-              <p className="text-gray-400 text-base">{featured.desc}</p>
-            </a>
-
-            {/* 3 card nhỏ */}
-            {rest.map(item => (
-              <a
-                key={item.id}
-                href={item.link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group relative overflow-hidden rounded-2xl bg-[#1A1A24] border border-gray-700/50 p-5 hover:border-indigo-500/40 transition-all duration-300 shadow-lg hover:shadow-indigo-500/10"
+          {/* Quick suggestions */}
+          <div className="flex flex-wrap justify-center gap-2 mb-12">
+            {['Viết email chuyên nghiệp', 'Tóm tắt tài liệu', 'Giải thích khái niệm'].map(s => (
+              <button
+                key={s}
+                onClick={() => setInput(s)}
+                className="text-slate-400 hover:text-white hover:bg-white/8 border border-white/10 rounded-full px-4 py-1.5 text-sm transition-all"
               >
-                <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <ArrowUpRight className="h-4 w-4 text-indigo-400" />
-                </div>
-                <h3 className="text-lg font-semibold text-white mb-1">{item.title}</h3>
-                <p className="text-gray-400 text-sm">{item.desc}</p>
-              </a>
+                {s}
+              </button>
             ))}
           </div>
         </div>
-      </div>
+      </section>
+
+      {/* Products */}
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 pb-20">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-white font-bold text-xl">Sản phẩm</h2>
+          <button className="text-blue-400 hover:text-blue-300 text-sm font-medium flex items-center gap-1 transition-colors">
+            Xem tất cả <ArrowRight size={14} />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Big card */}
+          {renderProductCard(BIG_PRODUCT, true)}
+
+          {/* Small cards */}
+          <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {SMALL_PRODUCTS.map(p => renderProductCard(p, false))}
+          </div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="border-t border-white/8 px-4 py-8 text-center">
+        <p className="text-slate-500 text-sm">Nova AI © 2026</p>
+      </footer>
     </div>
   );
 }
