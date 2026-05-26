@@ -7,11 +7,11 @@ export default function App() {
   const [initialMessage, setInitialMessage] = useState('');
 
   if (mode === 'chat') {
-    return <ChatPage onBack={() => setMode('home')} initialMessage={initialMessage} />;
+    return <Chat onBack={() => setMode('home')} initialMessage={initialMessage} />;
   }
 
   return (
-    <HomePage
+    <Home
       onStartChat={(msg: string) => {
         setInitialMessage(msg);
         setMode('chat');
